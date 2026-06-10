@@ -1,0 +1,69 @@
+Sub Gemini_Final_Version()
+    Dim http As Object
+    Dim url As String
+    Dim apiKey As String
+    Dim prompt As String
+    Dim jsonPayload As String
+    Dim response As String
+    Dim cleanText As String
+    Dim startPos As Long, endPos As Long
+    
+    ' === 【設定】ここにあなたのAPIキーを貼り付けてください ===
+    apiKey = "ここにあなたのAPIキーを貼り付ける"
+    
+    ' A1セルの文字を読み込み
+    prompt = Range("A1").Value
+    If prompt = "" Then
+        MsgBox "A1セルにAIへの質問を入力してください！", vbExclamation
+        Exit Sub
+    End If
+    
+    ' 最新のGemini 3 Flash Preview用のURL
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=" & apiKey
+    
+    ' AIに送るデータ（JSON形式）を組み立て
+    jsonPayload = "{""contents"": [{""parts"": [{""text"": """ & prompt & """}]}]}"
+    
+    ' 通信の送信
+    On Error GoTo ErrorHandler
+    Set http = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+    http.Open "POST", url, False
+    http.setRequestHeader "Content-Type", "application/json"
+    http.Send jsonPayload
+    
+    ' 返答を受け取る
+    response = http.responseText
+    
+    ' --- 【改良】どのような改行の並びでも「"text":」の後の文章を確実に抜き出す処理 ---
+    ' スペースや改行のズレを吸収するため、まずは「"text"」を探します
+    startPos = InStr(response, """text""")
+    if startPos > 0 Then
+        ' そこから最初の「"」を探し、さらにその次の「"」までの間を抜き取ります
+        startPos = InStr(startPos + 6, response, """")
+        If startPos > 0 Then
+            startPos = startPos + 1
+            endPos = InStr(startPos, response, """")
+            If endPos > 0 Then
+                cleanText = Mid(response, startPos, endPos - startPos)
+            End If
+        End If
+    End If
+    
+    ' もし綺麗に抜けたらB1へ、ダメなら生データを出して確認
+    If cleanText <> "" Then
+        ' 特殊な文字（改行コードなど）をExcel用に変換
+        cleanText = Replace(cleanText, "\n", vbCrLf)
+        cleanText = Replace(cleanText, "\""", """")
+        cleanText = Replace(cleanText, "\t", "    ")
+        
+        Range("B1").Value = cleanText
+        MsgBox "実験大成功！AIの返答だけを綺麗に書き出しました！", vbInformation
+    Else
+        Range("B1").Value = response
+        MsgBox "通信は成功しましたが、文字の抜き取りに失敗しました。B1の生データを確認してください。", vbExclamation
+    End If
+    Exit Sub
+
+ErrorHandler:
+    MsgBox "通信エラーが発生しました: " & Err.Description, vbCritical
+End Sub
