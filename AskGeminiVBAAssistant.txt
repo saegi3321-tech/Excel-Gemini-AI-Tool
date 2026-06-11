@@ -1,0 +1,107 @@
+Sub AskGeminiVBAAssistant()
+    Dim apiKey As String
+    Dim url As String
+    Dim http As Object
+    Dim requestBody As String
+    Dim responseText As String
+    Dim prompt As String
+    Dim systemInstruction As String
+    
+    ' --- 1. 設定 ---
+    apiKey = "YOUR_GEMINI_API_KEY" ' ★ここに実際のAPIキーを入力
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" & apiKey
+    
+    ' セルから依頼内容を取得
+    prompt = Sheets(1).Range("B6").Value
+    If Trim(prompt) = "" Then
+        MsgBox "B6セルに依頼内容を入力してください。", vbExclamation
+        Exit Sub
+    End If
+    
+    ' AIへのルール設定（プロンプトの先頭に合流）
+    systemInstruction = "あなたは優秀なExcel VBAのエキスパートです。" & _
+                        "ユーザーの依頼に対して、そのままVBEにコピペして動くVBAのコード（Sub〜End Sub）のみを出力してください。" & _
+                        "挨拶や解説、マークダウンの ```vba などの枠線や記号は一切含めないでください。コード内のコメント（'）は歓迎します。" & vbCrLf & vbCrLf
+    
+    Dim totalPrompt As String
+    totalPrompt = systemInstruction & "【依頼内容】:" & prompt
+    
+    ' --- 2. 文字列のエスケープ処理 ---
+    totalPrompt = Replace(totalPrompt, "\", "\\")
+    totalPrompt = Replace(totalPrompt, """", "\""")
+    totalPrompt = Replace(totalPrompt, vbCrLf, "\n")
+    totalPrompt = Replace(totalPrompt, vbLf, "\n")
+    
+    ' --- 3. JSON構造 ---
+    requestBody = "{" & _
+        """contents"": [{" & _
+            """parts"": [{" & _
+                """text"": """ & totalPrompt & """" & _
+            "}]" & _
+        "}]" & _
+    "}"
+
+    ' --- 4. API通信の実行 ---
+    Set http = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+    On Error GoTo ErrorHandler
+    
+    http.Open "POST", url, False
+    http.setRequestHeader "Content-Type", "application/json"
+    http.send requestBody
+    
+    ' --- 5. レスポンスの解析とテキストファイルへの出力 ---
+    If http.Status = 200 Then
+        responseText = http.responseText
+        
+        Dim startPos As Long, endPos As Long
+        Dim searchStr As String
+        searchStr = """text"": """
+        
+        startPos = InStr(responseText, searchStr)
+        If startPos > 0 Then
+            startPos = startPos + Len(searchStr)
+            endPos = InStr(startPos, responseText, """")
+            
+            Dim extractedCode As String
+            extractedCode = Mid(responseText, startPos, endPos - startPos)
+            
+            ' エスケープされた文字を元に戻す
+            extractedCode = Replace(extractedCode, "\n", vbCrLf)
+            extractedCode = Replace(extractedCode, "\""", """")
+            extractedCode = Replace(extractedCode, "\\", "\")
+            
+            ' 【ここからが新しい処理！】
+            ' デスクトップに「Generated_VBA.txt」というファイルを作成して書き込む
+            Dim wsh As Object
+            Dim desktopPath As String
+            Dim filePath As String
+            Dim fileNo As Integer
+            
+            Set wsh = CreateObject("WScript.Shell")
+            desktopPath = wsh.SpecialFolders("Desktop")
+            filePath = desktopPath & "\Generated_VBA.txt"
+            
+            ' ファイルへの書き込み（UTF-8などの文字化け対策として標準的な方法）
+            fileNo = FreeFile
+            Open filePath For Output As #fileNo
+            Print #fileNo, extractedCode
+            Close #fileNo
+            
+            ' メモ帳でそのファイルを自動起動して開く
+            Shell "notepad.exe """ & filePath & """", vbNormalFocus
+            
+            MsgBox "AI先輩がコードを生成し、デスクトップに保存してメモ帳で開きました！", vbInformation
+        Else
+            MsgBox "テキストの抽出に失敗しました。生のレスポンスを表示します。", vbWarning
+        End If
+    Else
+        MsgBox "エラーが発生しました。Status: " & http.Status & vbCrLf & http.responseText, vbCritical
+    End If
+    
+    Set http = Nothing
+    Exit Sub
+
+ErrorHandler:
+    MsgBox "通信エラー: " & Err.Description, vbCritical
+    Set http = Nothing
+End Sub
